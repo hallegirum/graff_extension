@@ -8,7 +8,7 @@ import numpy as np
 import wandb
 import torch
 from torch_geometric.data import Data, InMemoryDataset
-from torch_geometric.datasets import Planetoid, Amazon, Coauthor, WikipediaNetwork
+from torch_geometric.datasets import Planetoid, Amazon, Coauthor, WikipediaNetwork, TUDataset
 import torch_geometric.transforms as T
 from torch_geometric.utils import to_undirected, add_remaining_self_loops, remove_self_loops
 import networkx as nx
@@ -45,6 +45,8 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
     #nb 1st split is much lower than average performance
     dataset = WebKB(root=path, name=ds, transform=T.NormalizeFeatures())
     use_lcc = False
+  elif ds in ['REDDIT_BINARY', 'IMDB_BINARY', 'MUTAG', 'ENZYMES', 'PROTEINS', 'COLLAB']:
+    dataset = TUDataset(root=path,name=ds,transform = T.NormalizeFeatures())
   elif ds in ['chameleon', 'squirrel']:
     if not os.path.isfile(f"{path}/{ds}/raw/out1_node_feature_label.txt"):
       # download with PYG for correct preproc and folder structure
