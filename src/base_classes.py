@@ -71,7 +71,7 @@ class BaseGNN(MessagePassing):
     super(BaseGNN, self).__init__()
     self.opt = opt
     self.T = opt['time']
-    self.num_classes = dataset[0].num_classes
+    self.num_classes = dataset.num_classes
     self.num_features = dataset[0].num_features
     self.num_nodes = dataset[0].num_nodes
     self.device = device

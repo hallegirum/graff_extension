@@ -1,7 +1,7 @@
 ## gradient-based rewiring
 from itertools import product
 import torch
-from torch_geometric.utils import get_laplacian
+from torch_geometric.utils import get_laplacian, remove_self_loops, add_remaining_self_loops, contains_self_loops
 import torch_sparse
 
 
@@ -23,6 +23,15 @@ def dirichlet_energy_grad(edge_index, n, X, edge_weight=None, norm_type=None):
   LX = torch_sparse.spmm(edge_index, L, n, n, X)
   return LX
 
+def bottleneck_score(LX_i, LX_j,eps=1e-08, alpha=1, beta=1):
+  mag_i = torch.norm(LX_i, dim=-1)
+  mag_j = torch.norm(LX_j, dim=-1)
+  mag = mag_i + mag_j 
+  grad_diff = torch.norm(LX_i-LX_j,dim=-1) / (mag + eps)
+
+  score = alpha * grad_diff + beta * mag
+  return score 
+
 
 def energy_gradient_rewire(edge_index, n, X, k):
 
@@ -33,16 +42,16 @@ def energy_gradient_rewire(edge_index, n, X, k):
   k : number of edges add
   adj : (n,n) adjacency matrix
   """
-
   for idx in range(k):
+    edge_index, _ = remove_self_loops(edge_index)
     LX = dirichlet_energy_grad(edge_index,n,X)
-    diff_energy = (LX[edge_index[0]] - LX[edge_index[1]]).pow(2).sum(dim=-1)
-    print("min:", diff_energy.min().item())
-    print("max:", diff_energy.max().item())
-    print("mean:", diff_energy.mean().item())
-    bottleneck= torch.argmin(diff_energy,dim=-1)
-    node_i = edge_index[0,bottleneck]
-    node_j = edge_index[1,bottleneck]
+    score = bottleneck_score(LX[edge_index[0]],LX[edge_index[1]])
+    print("min:", score.min().item())
+    print("max:", score.max().item())
+    print("std:", score.std().item())
+    bottleneck= torch.argmin(score,dim=-1)
+    node_i = edge_index[0,bottleneck].item()
+    node_j = edge_index[1,bottleneck].item()
     print("node_i",node_i)
     print("node_j",node_j)
     neigh_i = get_neighbours(edge_index,node_i)
@@ -50,23 +59,27 @@ def energy_gradient_rewire(edge_index, n, X, k):
     print("neighboursi", len(neigh_i))
     print("neighboursj",len(neigh_j))
 
-    max_score = (0,(-1,-1))
+    max_score = (-float('inf'),(-1,-1))
+    print("old_score", bottleneck_score(LX[node_i],LX[node_j]))
     for (u,v) in product(neigh_i,neigh_j):
 
-        if has_edge(edge_index,u,v):
+        if has_edge(edge_index,u,v) or u==v:
           continue
         rewired_edge_index = add_edge(edge_index,u,v)
-        dir_energy = dirichlet_energy(rewired_edge_index,n,X)
-        dir_energy_ij = (dir_energy[node_i] - dir_energy[node_j]).pow(2).sum(dim=-1)
-        if max_score[0] < dir_energy_ij:
-          max_score = (dir_energy_ij, (u,v))
+        LX_new = dirichlet_energy_grad(rewired_edge_index,n,X)
+        score_ij = bottleneck_score(LX_new[node_i],LX_new[node_j])
+        print("new_score",score_ij)
+        if max_score[0] < score_ij:
+          max_score = (score_ij, (u,v))
 
 
     if max_score[1] != (-1,-1):
+      print("new_edge",max_score[0])
       u,v = max_score[1]
       edge_index = add_edge(edge_index,u,v)
+      edge_index = add_edge(edge_index,v,u)
 
-
+  edge_index, _ = add_remaining_self_loops(edge_index)
   return edge_index
 
 
