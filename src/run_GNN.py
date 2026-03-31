@@ -79,28 +79,24 @@ def main(cmd_opt):
         opt['not_lcc'] = False # set to false when using opt['undirected'] = False
 
     dataset = get_dataset(opt, '../data', opt['not_lcc'])
-
+    base_data = dataset[0].clone()
     pos_encoding = None
     this_test = test
     results = []
     for rep in range(opt['num_splits']):
+        data = base_data.clone()
         print(f"rep {rep}")
         if not opt['planetoid_split'] and opt['dataset'] in ['Cora', 'Citeseer', 'Pubmed']:
             dataset.data = set_train_val_test_split(np.random.randint(0, 1000), dataset.data,
                                                     num_development=5000 if opt["dataset"] == "CoauthorCS" else 1500)
-        if opt['geom_gcn_splits']:
-            if opt['dataset'] == "Citeseer":
-                opt['not_lcc'] = False
-                dataset = get_dataset(opt, '../data', opt['not_lcc']) #geom-gcn citeseer uses splits over LCC and not_LCC so need to reload full DS each rep/split
-            if opt['dataset'] == "cornell_old":
-                data = get_fixed_splits(dataset.data, 'cornell', rep)
-            else:
-                data = get_fixed_splits(dataset.data, opt['dataset'], rep)
-            dataset.data = data
-        if opt['dataset'] == 'syn_cora':
-            dataset = get_pyg_syn_cora("../data", opt, rep=rep+1)
+        if opt['dataset']== "Roman-empire":
+          data.train_mask = data.train_mask[:, rep]
+          data.val_mask   = data.val_mask[:, rep]
+          data.test_mask  = data.test_mask[:, rep]
 
-        data = dataset.data.to(device)
+           
+        data = data.to(device)
+        dataset._data = data
         model = GNN(opt, dataset, device).to(device)
 
         parameters = [p for p in model.parameters() if p.requires_grad]

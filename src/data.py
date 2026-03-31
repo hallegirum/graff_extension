@@ -21,6 +21,7 @@ from data_synth_hetero import get_pyg_syn_cora
 DATA_PATH = f'{ROOT_DIR}/data'
 
 
+
 def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
   # managing LCC for directed graphs, set to false when using opt['undirected'] == False
   if not opt['undirected'] and opt['dataset'] in ['texas', 'wisconsin', 'cornell', 'cornell_old', 'squirrel',
@@ -32,6 +33,7 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
 
   ds = opt['dataset']
   path = os.path.join(data_dir, ds)
+
   if ds in ['Cora', 'Citeseer', 'Pubmed']:
     dataset = Planetoid(path, ds)
   elif ds in ['Computers', 'Photo']:
@@ -41,17 +43,15 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
   elif ds in ['cornell', 'texas', 'wisconsin']:
     dataset = WebKB(root=path, name=ds, transform=T.NormalizeFeatures())
   elif ds in ['cornell_old']:
-    #raw files from pre July 2022 https://github.com/bingzhewei/geom-gcn/commits
-    #nb 1st split is much lower than average performance
     dataset = WebKB(root=path, name=ds, transform=T.NormalizeFeatures())
     use_lcc = False
   elif ds == 'Roman-empire':
-    dataset = HeterophilousGraphDataset(root=path, name=ds, transform = T.NormalizeFeatures())
+    dataset = HeterophilousGraphDataset(root=path, name=ds, transform=T.NormalizeFeatures())
+    use_lcc = False
   elif ds in ['PATTERN', 'CLUSTER']:
-    datset = GNNBenchmarkDataset(root=path, name=ds,transform = T.NormalizeFeatures)
+    dataset = GNNBenchmarkDataset(root=path, name=ds, transform=T.NormalizeFeatures())
   elif ds in ['chameleon', 'squirrel']:
     if not os.path.isfile(f"{path}/{ds}/raw/out1_node_feature_label.txt"):
-      # download with PYG for correct preproc and folder structure
       _ = WikipediaNetwork(root=path, name=ds, geom_gcn_preprocess=True, transform=T.NormalizeFeatures())
       new_raw = f"{path}/{ds}/raw"
       new_proc = f"{path}/{ds}/processed"
@@ -77,17 +77,18 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
       wandb.config.update({'geom_gcn_splits': False}, allow_val_change=True)
     except:
       opt['geom_gcn_splits'] = False
-
   else:
     raise Exception('Unknown dataset.')
+
+  data = dataset[0]
 
   if use_lcc:
     lcc = get_largest_connected_component(dataset)
 
-    x_new = dataset.data.x[lcc]
-    y_new = dataset.data.y[lcc]
+    x_new = data.x[lcc]
+    y_new = data.y[lcc]
 
-    row, col = dataset.data.edge_index.numpy()
+    row, col = data.edge_index.numpy()
     edges = [[i, j] for i, j in zip(row, col) if i in lcc and j in lcc]
     edges = remap_edges(edges, get_node_mapper(lcc))
 
@@ -99,41 +100,41 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
       test_mask=torch.zeros(y_new.size()[0], dtype=torch.bool),
       val_mask=torch.zeros(y_new.size()[0], dtype=torch.bool)
     )
-    dataset.data = data
-  train_mask_exists = True
-  try:
-    dataset.data.train_mask
-  except AttributeError:
-    train_mask_exists = False
+
+  train_mask_exists = all(
+      hasattr(data, attr) for attr in ['train_mask', 'val_mask', 'test_mask']
+  )
 
   if ds == 'ogbn-arxiv':
     split_idx = dataset.get_idx_split()
-    ei = to_undirected(dataset.data.edge_index)
+    ei = to_undirected(data.edge_index)
     data = Data(
-    x=dataset.data.x,
-    edge_index=ei,
-    y=dataset.data.y,
-    train_mask=split_idx['train'],
-    test_mask=split_idx['test'],
-    val_mask=split_idx['valid'])
-    dataset.data = data
+      x=data.x,
+      edge_index=ei,
+      y=data.y,
+      train_mask=split_idx['train'],
+      test_mask=split_idx['test'],
+      val_mask=split_idx['valid']
+    )
     train_mask_exists = True
 
-  #todo this currently breaks with heterophilic datasets if you don't pass --geom_gcn_splits
+  # todo this currently breaks with heterophilic datasets if you don't pass --geom_gcn_splits
   if (use_lcc or not train_mask_exists) and not opt['geom_gcn_splits']:
-    dataset.data = set_train_val_test_split(
+    data = set_train_val_test_split(
       12345,
-      dataset.data,
-      num_development=5000 if ds == "CoauthorCS" else 1500)
+      data,
+      num_development=5000 if ds == "CoauthorCS" else 1500
+    )
 
   if opt['self_loops']:
-      dataset.data.edge_index, _ = add_remaining_self_loops(dataset.data.edge_index)
+    data.edge_index, _ = add_remaining_self_loops(data.edge_index)
   else:
-      dataset.data.edge_index, _ = remove_self_loops(dataset.data.edge_index)
+    data.edge_index, _ = remove_self_loops(data.edge_index)
 
   if opt['undirected']:
-      dataset.data.edge_index = to_undirected(dataset.data.edge_index)
+    data.edge_index = to_undirected(data.edge_index)
 
+  dataset._data = data
   return dataset
 
 

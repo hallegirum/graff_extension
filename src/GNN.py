@@ -11,7 +11,7 @@ class GNN(BaseGNN):
     self.f = set_function(opt)
     block = set_block(opt)
     time_tensor = torch.tensor([0, self.T]).to(device)
-    self.odeblock = block(self.f, opt, dataset.data, device, t=time_tensor).to(device)
+    self.odeblock = block(self.f, opt, dataset[0], device, t=time_tensor).to(device)
     self.odeblock.odefunc.GNN_postXN = self.GNN_postXN
     self.odeblock.odefunc.GNN_m2 = self.m2
 
