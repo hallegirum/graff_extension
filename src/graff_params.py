@@ -361,6 +361,8 @@ def get_args():
     parser.add_argument('--w_param_free', type=str, default="True", help='allow parameter to require gradient')
     parser.add_argument('--pointwise_nonlin', type=str, default="False", help='apply pointwise nonlin relu to f')
 
+    ## graph rewire params 
+    parser.add_argument('--edge_to_add', type=int, default = 0,help= "number of edges to add in graph rewiring step" )
     args = parser.parse_args()
     opt = vars(args)
     return opt

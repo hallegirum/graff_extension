@@ -8,7 +8,7 @@ from heterophilic import get_fixed_splits
 from data_synth_hetero import get_pyg_syn_cora
 from utils import calc_stats, set_seed, add_labels, get_label_masks, print_model_params
 from graff_params import get_args, load_best_params, tf_ablation_args
-
+from graph_rewire import energy_gradient_rewire
 
 def get_optimizer(name, parameters, lr, weight_decay=0):
     if name == 'sgd':
@@ -96,6 +96,8 @@ def main(cmd_opt):
 
            
         data = data.to(device)
+        rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,opt["edge_to_add"])
+        data.edge_index = rewired_edge_index
         dataset._data = data
         model = GNN(opt, dataset, device).to(device)
 
