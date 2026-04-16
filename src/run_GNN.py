@@ -94,32 +94,33 @@ def main(cmd_opt):
     for i,k in enumerate(k_values):
       print(f"Running k={k}")
       for method in ['none','fosr','diffusion']:
-        print("method")
+        print(method)
+        if method == 'none' and i >0:
+          continue
+        data = base_data.clone()
+        print(f"rep {rep}")
+        if not opt['planetoid_split'] and opt['dataset'] in ['Cora', 'Citeseer', 'Pubmed']:
+            dataset.data = set_train_val_test_split(np.random.randint(0, 1000), dataset.data,
+                                                    num_development=5000 if opt["dataset"] == "CoauthorCS" else 1500)
+        if opt['dataset']== "Roman-empire":
+          data.train_mask = data.train_mask[:, rep]
+          data.val_mask   = data.val_mask[:, rep]
+          data.test_mask  = data.test_mask[:, rep]
+
+        
+        data = data.to(device)
+
+        if method == 'fosr':
+          print("rewiring_fosr")
+          numpy_edge_index = data.edge_index.detach().cpu().numpy()
+          fosr_edge_index, _, _ = edge_rewire(numpy_edge_index,num_iterations=k)
+          data.edge_index = torch.tensor(fosr_edge_index).to(device)
+
+        if method == "diffusion":
+          print("rewiring_diffusion")
+          rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,k)
+          data.edge_index = rewired_edge_index
         for rep in range(opt['num_splits']):
-            if method == 'none' and i >0:
-              continue
-            data = base_data.clone()
-            print(f"rep {rep}")
-            if not opt['planetoid_split'] and opt['dataset'] in ['Cora', 'Citeseer', 'Pubmed']:
-                dataset.data = set_train_val_test_split(np.random.randint(0, 1000), dataset.data,
-                                                        num_development=5000 if opt["dataset"] == "CoauthorCS" else 1500)
-            if opt['dataset']== "Roman-empire":
-              data.train_mask = data.train_mask[:, rep]
-              data.val_mask   = data.val_mask[:, rep]
-              data.test_mask  = data.test_mask[:, rep]
-
-            
-            data = data.to(device)
-
-            if method == 'fosr':
-              numpy_edge_index = data.edge_index.detach().cpu().numpy()
-              fosr_edge_index, _, _ = edge_rewire(numpy_edge_index,num_iterations=k)
-              data.edge_index = torch.tensor(fosr_edge_index).to(device)
-
-            if method == "diffusion":
-              rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,k)
-              data.edge_index = rewired_edge_index
-
             dataset._data = data
             model = GNN(opt, dataset, device).to(device)
 
