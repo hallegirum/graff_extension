@@ -66,7 +66,6 @@ def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
   k : number of edges add
   adj : (n,n) adjacency matrix
   """
-  print(edge_index.shape)
   for idx in range(k):
     edge_index, _ = remove_self_loops(edge_index)
     LX = dirichlet_energy_grad(edge_index,n,X)
@@ -76,7 +75,7 @@ def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
     # print("min:", score.min().item())
     # print("max:", score.max().item())
     # print("std:", score.std().item())
-    bottleneck= torch.argmin(score,dim=-1)
+    bottleneck= torch.argmax(score,dim=-1)
     node_i = edge_index[0,bottleneck].item()
     node_j = edge_index[1,bottleneck].item()
     print("node_i",node_i)
@@ -96,7 +95,7 @@ def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
           continue
         rewired_edge_index = add_edge(edge_index,u,v)
         new_score = evaluate_neighbourhood(X,rewired_edge_index,n,local_neigh)
-        relief = new_score - old_score
+        relief =  old_score - new_score
         # print("old_score",old_score)
         # print("new_score",new_score)
         if max_score[0] < relief:
@@ -114,6 +113,179 @@ def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
   edge_index, _ = add_remaining_self_loops(edge_index)
   print(edge_index.shape)
   return edge_index
+  
+def evaluate_neighbourhood_fast(LX_smooth, edge_index, local_neigh, 
+                                  candidate_u=None, candidate_v=None):
+    """
+    Fast approximation of neighbourhood score using pre-computed LX_smooth.
+    
+    Instead of recomputing LX after inserting candidate edge (u,v),
+    we approximate the effect of adding (u,v) on the neighbourhood score.
+    
+    The approximation: adding edge (u,v) pulls LX[u] toward LX[v] and vice versa.
+    We estimate the updated gradients at u and v after the edge addition,
+    then rescore the neighbourhood using these updated values.
+    
+    Args:
+        LX_smooth: pre-computed (n,d) gradient matrix
+        edge_index: current edge index
+        local_neigh: list of nodes in local neighbourhood
+        candidate_u, candidate_v: candidate edge to evaluate (or None for baseline)
+    """
+    local_set = set(local_neigh)
+    
+    # If evaluating a candidate edge, approximate updated LX at u and v
+    if candidate_u is not None and candidate_v is not None:
+        # Adding edge (u,v) means u now aggregates from v and vice versa
+        # Updated gradient at u: LX[u] gets pulled toward (LX[u] - LX[v])
+        # because u now has v as a neighbour, adding (x_u - x_v) to LX[u]
+        # This is a first-order approximation of what LX would be after insertion
+        
+        deg_u = (edge_index[0] == candidate_u).sum().item()
+        deg_v = (edge_index[0] == candidate_v).sum().item()
+        
+        # Approximate new LX at u and v after edge addition
+        # New LX[u] = old LX[u] + (1/(deg_u+1)) * (x_u - x_v) contribution
+        # But we are working with LX_smooth which already has diffusion applied
+        # So we approximate: the new gradient difference at (u,v) after addition
+        # tends toward zero (the edge is added to reduce the gradient difference)
+        # We weight the update by 1/(deg+1) — smaller effect for high-degree nodes
+        
+        LX_approx = LX_smooth.clone()
+        
+        weight_u = 1.0 / (deg_u + 1)
+        weight_v = 1.0 / (deg_v + 1)
+        
+        diff = LX_smooth[candidate_u] - LX_smooth[candidate_v]
+        
+        # Adding the edge reduces the gradient difference at this edge
+        LX_approx[candidate_u] = LX_smooth[candidate_u] - weight_u * diff
+        LX_approx[candidate_v] = LX_smooth[candidate_v] + weight_v * diff
+    else:
+        LX_approx = LX_smooth
+
+    # Score the neighbourhood using approximated gradients
+    local_score = 0.0
+    count = 0
+    seen = set()
+    
+    for u in local_neigh:
+        neighbours = edge_index[1][edge_index[0] == u].tolist()
+        for v in neighbours:
+            if v in local_set:
+                a, b = min(u,v), max(u,v)
+                if (a, b) in seen:
+                    continue
+                seen.add((a, b))
+                local_score += bottleneck_score(
+                    LX_approx[u], LX_approx[v]
+                ).item()
+                count += 1
+    
+    # Also include candidate edge in scoring if provided
+    if candidate_u is not None and candidate_v is not None:
+        if candidate_u in local_set and candidate_v in local_set:
+            local_score += bottleneck_score(
+                LX_approx[candidate_u], 
+                LX_approx[candidate_v]
+            ).item()
+            count += 1
+
+    return local_score / count if count > 0 else 0.0
+
+def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1, 
+                                   recompute_every=5):
+    """
+    Hybrid: exact recomputation every recompute_every steps,
+    approximate updates in between.
+    
+    recompute_every=1 recovers your exact dynamic method (slow)
+    recompute_every=k recovers pure fast batch (fastest, least accurate)
+    recompute_every=5 is a good middle ground
+    """
+    edge_index, _ = remove_self_loops(edge_index)
+    edge_set = set(zip(edge_index[0].tolist(), edge_index[1].tolist()))
+    
+    # Initial exact computation
+    LX = dirichlet_energy_grad(edge_index, n, X)
+    X_smooth = X - eta * LX
+    LX_smooth = dirichlet_energy_grad(edge_index, n, X_smooth)
+    
+    for idx in range(k):
+        
+        # Recompute exactly every recompute_every steps
+        # This resets accumulated approximation error
+        if idx > 0 and idx % recompute_every == 0:
+            LX = dirichlet_energy_grad(edge_index, n, X)
+            X_smooth = X - eta * LX
+            LX_smooth = dirichlet_energy_grad(edge_index, n, X_smooth)
+        
+        # Score all edges using current LX_smooth (exact or approximate)
+        score = bottleneck_score(
+            LX_smooth[edge_index[0]],
+            LX_smooth[edge_index[1]]
+        )
+        
+        # Find worst bottleneck — skip if neighbourhood saturated
+        sorted_bottlenecks = torch.argsort(score, descending=True)
+        
+        found = False
+        for bottleneck_idx in sorted_bottlenecks:
+            node_i = edge_index[0, bottleneck_idx].item()
+            node_j = edge_index[1, bottleneck_idx].item()
+            
+            neigh_i = get_neighbours(edge_index, node_i)
+            neigh_j = get_neighbours(edge_index, node_j)
+            
+            valid_candidates = [
+                (u, v) for (u, v) in product(neigh_i, neigh_j)
+                if (u, v) not in edge_set
+                and (v, u) not in edge_set
+                and u != v
+            ]
+            
+            if not valid_candidates:
+                continue
+            
+            local_neigh = list(set(neigh_i + neigh_j + [node_i, node_j]))
+            old_score = evaluate_neighbourhood_fast(
+                LX_smooth, edge_index, local_neigh
+            )
+            
+            best = (-float('inf'), (-1, -1))
+            for (u, v) in valid_candidates:
+                new_score = evaluate_neighbourhood_fast(
+                    LX_smooth, edge_index, local_neigh,
+                    candidate_u=u, candidate_v=v
+                )
+                relief = old_score - new_score
+                if best[0] < relief:
+                    best = (relief, (u, v))
+            
+            if best[1] != (-1, -1):
+                u, v = best[1]
+                edge_index = add_edge(edge_index, u, v)
+                edge_index = add_edge(edge_index, v, u)
+                edge_set.add((u, v))
+                edge_set.add((v, u))
+                
+                # Approximate update to LX_smooth for next iteration
+                # Avoids full recomputation between exact checkpoints
+                deg_u = sum(1 for _ in get_neighbours(edge_index, u))
+                deg_v = sum(1 for _ in get_neighbours(edge_index, v))
+                diff = LX_smooth[u] - LX_smooth[v]
+                LX_smooth[u] = LX_smooth[u] - (1.0/(deg_u+1)) * diff
+                LX_smooth[v] = LX_smooth[v] + (1.0/(deg_v+1)) * diff
+                
+                found = True
+                break
+        
+        if not found:
+            print(f"Early stop at iteration {idx}: no valid candidates")
+            break
+    
+    edge_index, _ = add_remaining_self_loops(edge_index)
+    return edge_index
 
 
 
