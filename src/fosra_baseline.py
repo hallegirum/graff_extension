@@ -83,7 +83,7 @@ def _edge_rewire(edge_index, edge_type, x=None, num_iterations=1, initial_power_
 		x = y / np.linalg.norm(y)
 	return edge_index, edge_type, x
 
-def edge_rewire(edge_index, x=None, edge_type=None, num_iterations=50, initial_power_iters=5):
+def edge_rewire(edge_index, x=None, edge_type=None, num_iterations=50, initial_power_iters=50):
 	m = edge_index.shape[1]
 	n = np.max(edge_index) + 1
 	if x is None:

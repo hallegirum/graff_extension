@@ -91,10 +91,13 @@ def main(cmd_opt):
       'diffusion':  {k: [] for k in k_values},
     }
 
-    for k in k_values:
+    for i,k in enumerate(k_values):
       print(f"Running k={k}")
       for method in ['none','fosr','diffusion']:
+        print("method")
         for rep in range(opt['num_splits']):
+            if method == 'none' and i >0:
+              continue
             data = base_data.clone()
             print(f"rep {rep}")
             if not opt['planetoid_split'] and opt['dataset'] in ['Cora', 'Citeseer', 'Pubmed']:
@@ -110,11 +113,11 @@ def main(cmd_opt):
 
             if method == 'fosr':
               numpy_edge_index = data.edge_index.detach().cpu().numpy()
-              fosr_edge_index, _, _ = edge_rewire(numpy_edge_index)
+              fosr_edge_index, _, _ = edge_rewire(numpy_edge_index,num_iterations=k)
               data.edge_index = torch.tensor(fosr_edge_index).to(device)
 
             if method == "diffusion":
-              rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,opt["edge_to_add"])
+              rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,k)
               data.edge_index = rewired_edge_index
 
             dataset._data = data
@@ -155,28 +158,28 @@ def main(cmd_opt):
             print(
                 f"best val accuracy {val_acc:.3f} with test accuracy {test_acc:.3f} at epoch {best_epoch} and best time {best_time:2f}")
 
-            stats = calc_stats(model, data)
-            RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = stats['RQX0'], stats['RQXN'], stats['ev_max'], stats['ev_min'], stats['ev_av'], stats['ev_std']
-            print(f"RQX0, RQXN, ev_max, ev_min, ev_av, l_std: {RQX0, RQXN, ev_max, ev_min, ev_av, ev_std}")
+            # stats = calc_stats(model, data)
+            # RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = stats['RQX0'], stats['RQXN'], stats['ev_max'], stats['ev_min'], stats['ev_av'], stats['ev_std']
+            # print(f"RQX0, RQXN, ev_max, ev_min, ev_av, l_std: {RQX0, RQXN, ev_max, ev_min, ev_av, ev_std}")
 
-            if opt['num_splits'] > 1:
-                results.append([test_acc, val_acc, train_acc, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std])
+            # if opt['num_splits'] > 1:
+            #     results.append([test_acc, val_acc, train_acc, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std])
 
-        if opt['num_splits'] > 1:
-            test_acc_mean, val_acc_mean, train_acc_mean, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = np.mean(results,
-                                                                                                            axis=0)
-            test_acc_mean = test_acc_mean * 100
-            val_acc_mean = val_acc_mean * 100
-            train_acc_mean = train_acc_mean * 100
-            test_acc_std = np.sqrt(np.var(results, axis=0)[0]) * 100
+        # if opt['num_splits'] > 1:
+        #     test_acc_mean, val_acc_mean, train_acc_mean, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = np.mean(results,
+        #                                                                                                     axis=0)
+        #     test_acc_mean = test_acc_mean * 100
+        #     val_acc_mean = val_acc_mean * 100
+        #     train_acc_mean = train_acc_mean * 100
+        #     test_acc_std = np.sqrt(np.var(results, axis=0)[0]) * 100
 
-            results = {'test_mean': test_acc_mean, 'val_mean': val_acc_mean, 'train_mean': train_acc_mean,
-                      'test_acc_std': test_acc_std,
-                      'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
-        else:
-            results = {'test_acc': test_acc, 'val_acc': val_acc, 'train_acc': train_acc,
-                      'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
-
+        #     results = {'test_mean': test_acc_mean, 'val_mean': val_acc_mean, 'train_mean': train_acc_mean,
+        #               'test_acc_std': test_acc_std,
+        #               'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
+        # else:
+        #     results = {'test_acc': test_acc, 'val_acc': val_acc, 'train_acc': train_acc,
+        #               'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
+        
         all_results[method][k].append(test_acc)
         print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
