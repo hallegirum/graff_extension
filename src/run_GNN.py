@@ -98,15 +98,10 @@ def main(cmd_opt):
         if method == 'none' and i >0:
           continue
         data = base_data.clone()
-        print(f"rep {rep}")
         if not opt['planetoid_split'] and opt['dataset'] in ['Cora', 'Citeseer', 'Pubmed']:
             dataset.data = set_train_val_test_split(np.random.randint(0, 1000), dataset.data,
                                                     num_development=5000 if opt["dataset"] == "CoauthorCS" else 1500)
-        if opt['dataset']== "Roman-empire":
-          data.train_mask = data.train_mask[:, rep]
-          data.val_mask   = data.val_mask[:, rep]
-          data.test_mask  = data.test_mask[:, rep]
-
+      
         
         data = data.to(device)
 
@@ -120,7 +115,18 @@ def main(cmd_opt):
           print("rewiring_diffusion")
           rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,k)
           data.edge_index = rewired_edge_index
+        
+        if opt['dataset'] == "Roman-empire":
+          train_mask_all = base_data.train_mask.to(device)  # (n, num_splits)
+          val_mask_all   = base_data.val_mask.to(device)
+          test_mask_all  = base_data.test_mask.to(device)
+
         for rep in range(opt['num_splits']):
+          if opt['dataset'] == "Roman-empire":
+            data.train_mask = train_mask_all[:, rep]
+            data.val_mask   = val_mask_all[:, rep]
+            data.test_mask  = test_mask_all[:, rep]
+
             dataset._data = data
             model = GNN(opt, dataset, device).to(device)
 

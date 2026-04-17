@@ -63,26 +63,26 @@ def compute_spectral_gap(edge_index, x):
 @jit(nopython=True)
 def _edge_rewire(edge_index, edge_type, x=None, num_iterations=50, initial_power_iters=5):
   print("number of iterations",num_iterations)
-	m = edge_index.shape[1]
-	n = np.max(edge_index) + 1
-	if x is None:
-		x = 2 * np.random.random(n) - 1
-	degrees = compute_degrees(edge_index, num_nodes=n)
-	for i in range(initial_power_iters):
-		x = x - x.dot(degrees ** 0.5) * (degrees ** 0.5)/sum(degrees)
-		y = x + adj_matrix_multiply(edge_index, x / (degrees ** 0.5)) / (degrees ** 0.5)
-		x = y / np.linalg.norm(y)
-	for I in range(num_iterations):
-		i, j = choose_edge_to_add(x, edge_index, degrees=degrees)
-		edge_index = add_edge(edge_index, i, j)
-		degrees[i] += 1
-		degrees[j] += 1
-		# edge_type = np.append(edge_type, 1)
-		# edge_type = np.append(edge_type, 1)
-		x = x - x.dot(degrees ** 0.5) * (degrees ** 0.5)/sum(degrees)
-		y = x + adj_matrix_multiply(edge_index, x / (degrees ** 0.5)) / (degrees ** 0.5)
-		x = y / np.linalg.norm(y)
-	return edge_index, edge_type, x
+  m = edge_index.shape[1]
+  n = np.max(edge_index) + 1
+  if x is None:
+    x = 2 * np.random.random(n) - 1
+  degrees = compute_degrees(edge_index, num_nodes=n)
+  for i in range(initial_power_iters):
+    x = x - x.dot(degrees ** 0.5) * (degrees ** 0.5)/sum(degrees)
+    y = x + adj_matrix_multiply(edge_index, x / (degrees ** 0.5)) / (degrees ** 0.5)
+    x = y / np.linalg.norm(y)
+  for I in range(num_iterations):
+    i, j = choose_edge_to_add(x, edge_index, degrees=degrees)
+    edge_index = add_edge(edge_index, i, j)
+    degrees[i] += 1
+    degrees[j] += 1
+    # edge_type = np.append(edge_type, 1)
+    # edge_type = np.append(edge_type, 1)
+    x = x - x.dot(degrees ** 0.5) * (degrees ** 0.5)/sum(degrees)
+    y = x + adj_matrix_multiply(edge_index, x / (degrees ** 0.5)) / (degrees ** 0.5)
+    x = y / np.linalg.norm(y)
+  return edge_index, edge_type, x
 
 def edge_rewire(edge_index, x=None, edge_type=None, num_iterations=50, initial_power_iters=5):
 	m = edge_index.shape[1]
