@@ -213,7 +213,7 @@ def score_neighbourhood(LX, neighbour_dict, local_neigh):
     count = 0
 
     for u in local_neigh:
-        for v in neighbour_dict.get(u, []):
+        for v in neighbour_dict[u]:
             if v in local_set:
                 a, b = (u, v) if u < v else (v, u)
                 if (a, b) in seen:
@@ -284,8 +284,8 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
             node_i = edge_index[0, bottleneck_idx].item()
             node_j = edge_index[1, bottleneck_idx].item()
             
-            neigh_i = get_neighbours(edge_index, node_i)
-            neigh_j = get_neighbours(edge_index, node_j)
+            neigh_i = neigh_dict[node_i]
+            neigh_j = neigh_dict[node_j]
             
             valid_candidates = [
                 (u, v) for (u, v) in product(neigh_i, neigh_j)
@@ -299,7 +299,7 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
             
             local_neigh = list(set(neigh_i + neigh_j + [node_i, node_j]))
             old_score = score_neighbourhood(
-                LX_smooth, edge_index, local_neigh
+                LX_smooth, neigh_dict, local_neigh
             )
             
             best = (-float('inf'), (-1, -1))
