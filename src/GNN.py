@@ -73,3 +73,8 @@ class GNN(BaseGNN):
     # Decode each node embedding to get node label.
     z = self.m2(z)
     return z
+    
+  def get_final_embeddings(self, x, pos_encoding=None):
+    z = self.forward_XN(x, pos_encoding)
+    z = self.GNN_postXN(z)
+    return z

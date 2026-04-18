@@ -3,7 +3,7 @@ from itertools import product
 import torch
 from torch_geometric.utils import get_laplacian, remove_self_loops, add_remaining_self_loops, contains_self_loops, is_undirected
 import torch_sparse
-
+from collections import defaultdict
 
 def has_edge(edge_index, i, j):
   return bool(((edge_index[0]==i) & (edge_index[1]==j)).any())
@@ -17,6 +17,19 @@ def get_neighbours(edge_index,i):
   neighbours = edge_index[1][edge_index[0]==i]
   return neighbours.tolist()
 
+def build_neighbour_dict(edge_index):
+    neigh = defaultdict(list)
+    src = edge_index[0].tolist()
+    dst = edge_index[1].tolist()
+    for u, v in zip(src, dst):
+        neigh[u].append(v)
+    return neigh
+
+def add_edge_to_neighbour_dict(neighbour_dict, u, v):
+    new_dict = neighbour_dict.copy()
+    new_dict[u] = neighbour_dict[u] + [v]
+    new_dict[v] = neighbour_dict[v] + [u]
+    return new_dict
 
 def dirichlet_energy_grad(edge_index, n, X, edge_weight=None, norm_type=None):
   edge_index, L = get_laplacian(edge_index, edge_weight, norm_type)
@@ -114,84 +127,120 @@ def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
   print(edge_index.shape)
   return edge_index
   
-def evaluate_neighbourhood_fast(LX_smooth, edge_index, local_neigh, 
-                                  candidate_u=None, candidate_v=None):
-    """
-    Fast approximation of neighbourhood score using pre-computed LX_smooth.
+# def evaluate_neighbourhood_fast(LX_smooth, edge_index, local_neigh, 
+#                                   candidate_u=None, candidate_v=None):
+#     """
+#     Fast approximation of neighbourhood score using pre-computed LX_smooth.
     
-    Instead of recomputing LX after inserting candidate edge (u,v),
-    we approximate the effect of adding (u,v) on the neighbourhood score.
+#     Instead of recomputing LX after inserting candidate edge (u,v),
+#     we approximate the effect of adding (u,v) on the neighbourhood score.
     
-    The approximation: adding edge (u,v) pulls LX[u] toward LX[v] and vice versa.
-    We estimate the updated gradients at u and v after the edge addition,
-    then rescore the neighbourhood using these updated values.
+#     The approximation: adding edge (u,v) pulls LX[u] toward LX[v] and vice versa.
+#     We estimate the updated gradients at u and v after the edge addition,
+#     then rescore the neighbourhood using these updated values.
     
-    Args:
-        LX_smooth: pre-computed (n,d) gradient matrix
-        edge_index: current edge index
-        local_neigh: list of nodes in local neighbourhood
-        candidate_u, candidate_v: candidate edge to evaluate (or None for baseline)
-    """
-    local_set = set(local_neigh)
+#     Args:
+#         LX_smooth: pre-computed (n,d) gradient matrix
+#         edge_index: current edge index
+#         local_neigh: list of nodes in local neighbourhood
+#         candidate_u, candidate_v: candidate edge to evaluate (or None for baseline)
+#     """
+#     local_set = set(local_neigh)
     
-    # If evaluating a candidate edge, approximate updated LX at u and v
-    if candidate_u is not None and candidate_v is not None:
-        # Adding edge (u,v) means u now aggregates from v and vice versa
-        # Updated gradient at u: LX[u] gets pulled toward (LX[u] - LX[v])
-        # because u now has v as a neighbour, adding (x_u - x_v) to LX[u]
-        # This is a first-order approximation of what LX would be after insertion
+#     # If evaluating a candidate edge, approximate updated LX at u and v
+#     if candidate_u is not None and candidate_v is not None:
+#         # Adding edge (u,v) means u now aggregates from v and vice versa
+#         # Updated gradient at u: LX[u] gets pulled toward (LX[u] - LX[v])
+#         # because u now has v as a neighbour, adding (x_u - x_v) to LX[u]
+#         # This is a first-order approximation of what LX would be after insertion
         
-        deg_u = (edge_index[0] == candidate_u).sum().item()
-        deg_v = (edge_index[0] == candidate_v).sum().item()
+#         deg_u = (edge_index[0] == candidate_u).sum().item()
+#         deg_v = (edge_index[0] == candidate_v).sum().item()
         
-        # Approximate new LX at u and v after edge addition
-        # New LX[u] = old LX[u] + (1/(deg_u+1)) * (x_u - x_v) contribution
-        # But we are working with LX_smooth which already has diffusion applied
-        # So we approximate: the new gradient difference at (u,v) after addition
-        # tends toward zero (the edge is added to reduce the gradient difference)
-        # We weight the update by 1/(deg+1) — smaller effect for high-degree nodes
+#         # Approximate new LX at u and v after edge addition
+#         # New LX[u] = old LX[u] + (1/(deg_u+1)) * (x_u - x_v) contribution
+#         # But we are working with LX_smooth which already has diffusion applied
+#         # So we approximate: the new gradient difference at (u,v) after addition
+#         # tends toward zero (the edge is added to reduce the gradient difference)
+#         # We weight the update by 1/(deg+1) — smaller effect for high-degree nodes
         
-        LX_approx = LX_smooth.clone()
+#         LX_approx = LX_smooth.clone()
         
-        weight_u = 1.0 / (deg_u + 1)
-        weight_v = 1.0 / (deg_v + 1)
+#         weight_u = 1.0 / (deg_u + 1)
+#         weight_v = 1.0 / (deg_v + 1)
         
-        diff = LX_smooth[candidate_u] - LX_smooth[candidate_v]
+#         diff = LX_smooth[candidate_u] - LX_smooth[candidate_v]
         
-        # Adding the edge reduces the gradient difference at this edge
-        LX_approx[candidate_u] = LX_smooth[candidate_u] - weight_u * diff
-        LX_approx[candidate_v] = LX_smooth[candidate_v] + weight_v * diff
-    else:
-        LX_approx = LX_smooth
+#         # Adding the edge reduces the gradient difference at this edge
+#         LX_approx[candidate_u] = LX_smooth[candidate_u] - weight_u * diff
+#         LX_approx[candidate_v] = LX_smooth[candidate_v] + weight_v * diff
+#     else:
+#         LX_approx = LX_smooth
 
-    # Score the neighbourhood using approximated gradients
-    local_score = 0.0
-    count = 0
-    seen = set()
+#     # Score the neighbourhood using approximated gradients
+#     local_score = 0.0
+#     count = 0
+#     seen = set()
     
+#     for u in local_neigh:
+#         neighbours = edge_index[1][edge_index[0] == u].tolist()
+#         for v in neighbours:
+#             if v in local_set:
+#                 a, b = min(u,v), max(u,v)
+#                 if (a, b) in seen:
+#                     continue
+#                 seen.add((a, b))
+#                 local_score += bottleneck_score(
+#                     LX_approx[u], LX_approx[v]
+#                 ).item()
+#                 count += 1
+    
+#     # Also include candidate edge in scoring if provided
+#     if candidate_u is not None and candidate_v is not None:
+#         if candidate_u in local_set and candidate_v in local_set:
+#             local_score += bottleneck_score(
+#                 LX_approx[candidate_u], 
+#                 LX_approx[candidate_v]
+#             ).item()
+#             count += 1
+
+#     return local_score / count if count > 0 else 0.0
+
+def score_neighbourhood(LX, neighbour_dict, local_neigh):
+    local_set = set(local_neigh)
+    seen = set()
+    total = 0.0
+    count = 0
+
     for u in local_neigh:
-        neighbours = edge_index[1][edge_index[0] == u].tolist()
-        for v in neighbours:
+        for v in neighbour_dict.get(u, []):
             if v in local_set:
-                a, b = min(u,v), max(u,v)
+                a, b = (u, v) if u < v else (v, u)
                 if (a, b) in seen:
                     continue
                 seen.add((a, b))
-                local_score += bottleneck_score(
-                    LX_approx[u], LX_approx[v]
-                ).item()
+                total += bottleneck_score(LX[u], LX[v]).item()
                 count += 1
-    
-    # Also include candidate edge in scoring if provided
-    if candidate_u is not None and candidate_v is not None:
-        if candidate_u in local_set and candidate_v in local_set:
-            local_score += bottleneck_score(
-                LX_approx[candidate_u], 
-                LX_approx[candidate_v]
-            ).item()
-            count += 1
 
-    return local_score / count if count > 0 else 0.0
+    return total / count if count > 0 else 0.0
+
+def evaluate_neighbourhood_fast(LX_smooth, neighbour_dict, local_neigh, candidate_u, candidate_v):
+
+    deg_u = len(neighbour_dict[candidate_u])
+    deg_v = len(neighbour_dict[candidate_v])
+
+    LX_approx = LX_smooth.clone()
+    diff = LX_smooth[candidate_u] - LX_smooth[candidate_v]
+
+    weight_u = 1.0 / (deg_u + 1)
+    weight_v = 1.0 / (deg_v + 1)
+
+    LX_approx[candidate_u] = LX_smooth[candidate_u] - weight_u * diff
+    LX_approx[candidate_v] = LX_smooth[candidate_v] + weight_v * diff
+
+    augmented_dict = add_edge_to_neighbour_dict(neighbour_dict, candidate_u, candidate_v)
+
+    return score_neighbourhood(LX_approx, augmented_dict, local_neigh)
 
 def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1, 
                                    recompute_every=5):
@@ -205,6 +254,7 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
     """
     edge_index, _ = remove_self_loops(edge_index)
     edge_set = set(zip(edge_index[0].tolist(), edge_index[1].tolist()))
+    neigh_dict = build_neighbour_dict(edge_index)
     
     # Initial exact computation
     LX = dirichlet_energy_grad(edge_index, n, X)
@@ -248,15 +298,15 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
                 continue
             
             local_neigh = list(set(neigh_i + neigh_j + [node_i, node_j]))
-            old_score = evaluate_neighbourhood_fast(
+            old_score = score_neighbourhood(
                 LX_smooth, edge_index, local_neigh
             )
             
             best = (-float('inf'), (-1, -1))
             for (u, v) in valid_candidates:
                 new_score = evaluate_neighbourhood_fast(
-                    LX_smooth, edge_index, local_neigh,
-                    candidate_u=u, candidate_v=v
+                    LX_smooth, neigh_dict, local_neigh,
+                    u, v
                 )
                 relief = old_score - new_score
                 if best[0] < relief:
@@ -268,11 +318,13 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
                 edge_index = add_edge(edge_index, v, u)
                 edge_set.add((u, v))
                 edge_set.add((v, u))
+                neigh_dict[u].append(v)
+                neigh_dict[v].append(u)
                 
                 # Approximate update to LX_smooth for next iteration
                 # Avoids full recomputation between exact checkpoints
-                deg_u = sum(1 for _ in get_neighbours(edge_index, u))
-                deg_v = sum(1 for _ in get_neighbours(edge_index, v))
+                deg_u =len(neigh_dict[u])
+                deg_v = len(neigh_dict[v])
                 diff = LX_smooth[u] - LX_smooth[v]
                 LX_smooth[u] = LX_smooth[u] - (1.0/(deg_u+1)) * diff
                 LX_smooth[v] = LX_smooth[v] + (1.0/(deg_v+1)) * diff

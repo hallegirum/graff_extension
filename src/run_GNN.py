@@ -1,5 +1,6 @@
 import time
 import numpy as np
+from numpy.random import dirichlet
 import torch
 
 from GNN import GNN
@@ -8,7 +9,7 @@ from heterophilic import get_fixed_splits
 from data_synth_hetero import get_pyg_syn_cora
 from utils import calc_stats, set_seed, add_labels, get_label_masks, print_model_params
 from graff_params import get_args, load_best_params, tf_ablation_args
-from graph_rewire import energy_gradient_rewire, energy_gradient_rewire_hybrid
+from graph_rewire import energy_gradient_rewire,dirichlet_energy_grad, energy_gradient_rewire_hybrid
 from fosra_baseline import edge_rewire
 
 def get_optimizer(name, parameters, lr, weight_decay=0):
@@ -90,6 +91,11 @@ def main(cmd_opt):
       'fosr':  {k: [] for k in k_values},
       'diffusion':  {k: [] for k in k_values},
     }
+    energy_results = { 
+      'none':  {k: [] for k in k_values},
+      'fosr':  {k: [] for k in k_values},
+      'diffusion':  {k: [] for k in k_values},
+    }
 
     for i,k in enumerate(k_values):
       print(f"Running k={k}")
@@ -126,6 +132,12 @@ def main(cmd_opt):
             data.train_mask = train_mask_all[:, rep]
             data.val_mask   = val_mask_all[:, rep]
             data.test_mask  = test_mask_all[:, rep]
+          
+          if opt['dataset'] == "cornell":
+            split = get_fixed_splits(base_data, "cornell", seed=rep)
+            data.train_mask = split.train_mask.to(device)
+            data.val_mask   = split.val_mask.to(device)
+            data.test_mask  = split.test_mask.to(device)
 
             dataset._data = data
             model = GNN(opt, dataset, device).to(device)
@@ -152,10 +164,10 @@ def main(cmd_opt):
                     patience_count = 0
                 else:
                     patience_count += 1
-                print(f"Epoch: {epoch}, Runtime: {time.time() - start_time:.3f}, Loss: {loss:.3f}, "
-                      f"forward nfe {model.fm.sum}, backward nfe {model.bm.sum}, "
-                      f"tmp_train: {tmp_train_acc:.4f}, tmp_val: {tmp_val_acc:.4f}, tmp_test: {tmp_test_acc:.4f}, "
-                      f"Train: {train_acc:.4f}, Val: {val_acc:.4f}, Test: {test_acc:.4f}, Best time: {best_time:.4f}")
+                # print(f"Epoch: {epoch}, Runtime: {time.time() - start_time:.3f}, Loss: {loss:.3f}, "
+                #       f"forward nfe {model.fm.sum}, backward nfe {model.bm.sum}, "
+                #       f"tmp_train: {tmp_train_acc:.4f}, tmp_val: {tmp_val_acc:.4f}, tmp_test: {tmp_test_acc:.4f}, "
+                #       f"Train: {train_acc:.4f}, Val: {val_acc:.4f}, Test: {test_acc:.4f}, Best time: {best_time:.4f}")
 
                 if np.isnan(loss):
                     break
@@ -186,8 +198,14 @@ def main(cmd_opt):
         # else:
         #     results = {'test_acc': test_acc, 'val_acc': val_acc, 'train_acc': train_acc,
         #               'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
-        
+        with torch.no_grad():
+            emb = model.get_final_embeddings(data.x)
+        LX_final = dirichlet_energy_grad(data.edge_index, data.num_nodes,emb)
+        energy = LX_final.norm(dim=-1).mean().item()
+        print(f"Final layer energy: {energy:.4f}")
         all_results[method][k].append(test_acc)
+        energy_results[method][k].append(energy)
+
         print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
     # --- Summarise results ---
@@ -198,23 +216,44 @@ def main(cmd_opt):
     print("-" * 68)
 
     summary = {}
+    summary_energy = {}
+
     for k in k_values:
-        row = {}
-        for method in ['none', 'fosr', 'ours']:
+        row_acc = {}
+        row_energy = {}
+
+        for method in ['none', 'fosr', 'diffusion']:
             accs = all_results[method][k]
-            mean = np.mean(accs) * 100
-            std  = np.std(accs) * 100
-            row[method] = (mean, std)
+            energy = energy_results[method][k]
 
-        summary[k] = row
-        print(
-            f"{k:<8} "
-            f"{row['none'][0]:.2f}±{row['none'][1]:.2f}{'':8}"
-            f"{row['fosr'][0]:.2f}±{row['fosr'][1]:.2f}{'':8}"
-            f"{row['ours'][0]:.2f}±{row['ours'][1]:.2f}"
-        )
+            mean_energy = np.mean(energy)
+            std_energy = np.std(energy)
 
-    plot_k_ablation(summary,k_values)
+            mean_acc = np.mean(accs) * 100
+            std_acc = np.std(accs) * 100
+
+            row_acc[method] = (mean_acc, std_acc)
+            row_energy[method] = (mean_energy, std_energy)
+
+        summary[k] = row_acc
+        summary_energy[k] = row_energy
+
+    print(
+        f"{k:<8} "
+        f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
+        f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
+        f"{row_acc['diffusion'][0]:.2f}±{row_acc['diffusion'][1]:.2f}"
+    )
+
+    print(
+        f"{k:<8} "
+        f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
+        f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
+        f"{row_energy['diffusion'][0]:.2f}±{row_energy['diffusion'][1]:.2f}"
+    )
+
+    plot_k_ablation(summary, k_values, "acc.png")
+    plot_k_ablation(summary_energy, k_values, "energy.png")
     return summary, all_results
 
 def plot_k_ablation(summary, k_values):
@@ -229,7 +268,7 @@ def plot_k_ablation(summary, k_values):
     for method, label, color, marker in [
         ('none', 'No rewiring', 'gray',   '--'),
         ('fosr', 'FoSR',        'blue',   'o-'),
-        ('ours', 'Ours',        'green',  's-'),
+        ('diffusion', 'diffusion',        'green',  's-'),
     ]:
         means = [summary[k][method][0] for k in k_values]
         stds  = [summary[k][method][1] for k in k_values]
