@@ -42,6 +42,7 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
     dataset = Coauthor(path, 'CS')
   elif ds in ['cornell', 'texas', 'wisconsin']:
     dataset = WebKB(root=path, name=ds, transform=T.NormalizeFeatures())
+    use_lcc = False
   elif ds in ['cornell_old']:
     dataset = WebKB(root=path, name=ds, transform=T.NormalizeFeatures())
     use_lcc = False

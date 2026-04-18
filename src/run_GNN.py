@@ -119,7 +119,7 @@ def main(cmd_opt):
 
         if method == "diffusion":
           print("rewiring_diffusion")
-          rewired_edge_index = energy_gradient_rewire(data.edge_index,data.num_nodes, data.x,k)
+          rewired_edge_index = energy_gradient_rewire_hybrid(data.edge_index,data.num_nodes, data.x,k)
           data.edge_index = rewired_edge_index
         
         if opt['dataset'] == "Roman-empire":
@@ -139,43 +139,43 @@ def main(cmd_opt):
             data.val_mask   = split.val_mask.to(device)
             data.test_mask  = split.test_mask.to(device)
 
-            dataset._data = data
-            model = GNN(opt, dataset, device).to(device)
+          dataset._data = data
+          model = GNN(opt, dataset, device).to(device)
 
-            parameters = [p for p in model.parameters() if p.requires_grad]
-            print(opt)
-            print_model_params(model)
-            optimizer = get_optimizer(opt['optimizer'], parameters, lr=opt['lr'], weight_decay=opt['decay'])
-            best_time = best_epoch = train_acc = val_acc = test_acc = 0
-            if opt['patience'] is not None:
-                patience_count = 0
-            for epoch in range(1, opt['epoch']):
-                start_time = time.time()
-                loss = train(model, optimizer, data, pos_encoding)
-                tmp_train_acc, tmp_val_acc, tmp_test_acc = this_test(model, data, pos_encoding, opt)
+          parameters = [p for p in model.parameters() if p.requires_grad]
+          print(opt)
+          print_model_params(model)
+          optimizer = get_optimizer(opt['optimizer'], parameters, lr=opt['lr'], weight_decay=opt['decay'])
+          best_time = best_epoch = train_acc = val_acc = test_acc = 0
+          if opt['patience'] is not None:
+              patience_count = 0
+          for epoch in range(1, opt['epoch']):
+              start_time = time.time()
+              loss = train(model, optimizer, data, pos_encoding)
+              tmp_train_acc, tmp_val_acc, tmp_test_acc = this_test(model, data, pos_encoding, opt)
 
-                best_time = opt['time']
-                if tmp_val_acc > val_acc:
-                    best_epoch = epoch
-                    train_acc = tmp_train_acc
-                    val_acc = tmp_val_acc
-                    test_acc = tmp_test_acc
-                    best_time = opt['time']
-                    patience_count = 0
-                else:
-                    patience_count += 1
-                # print(f"Epoch: {epoch}, Runtime: {time.time() - start_time:.3f}, Loss: {loss:.3f}, "
-                #       f"forward nfe {model.fm.sum}, backward nfe {model.bm.sum}, "
-                #       f"tmp_train: {tmp_train_acc:.4f}, tmp_val: {tmp_val_acc:.4f}, tmp_test: {tmp_test_acc:.4f}, "
-                #       f"Train: {train_acc:.4f}, Val: {val_acc:.4f}, Test: {test_acc:.4f}, Best time: {best_time:.4f}")
+              best_time = opt['time']
+              if tmp_val_acc > val_acc:
+                  best_epoch = epoch
+                  train_acc = tmp_train_acc
+                  val_acc = tmp_val_acc
+                  test_acc = tmp_test_acc
+                  best_time = opt['time']
+                  patience_count = 0
+              else:
+                  patience_count += 1
+              # print(f"Epoch: {epoch}, Runtime: {time.time() - start_time:.3f}, Loss: {loss:.3f}, "
+              #       f"forward nfe {model.fm.sum}, backward nfe {model.bm.sum}, "
+              #       f"tmp_train: {tmp_train_acc:.4f}, tmp_val: {tmp_val_acc:.4f}, tmp_test: {tmp_test_acc:.4f}, "
+              #       f"Train: {train_acc:.4f}, Val: {val_acc:.4f}, Test: {test_acc:.4f}, Best time: {best_time:.4f}")
 
-                if np.isnan(loss):
-                    break
-                if opt['patience'] is not None:
-                    if patience_count >= opt['patience']:
-                        break
-            print(
-                f"best val accuracy {val_acc:.3f} with test accuracy {test_acc:.3f} at epoch {best_epoch} and best time {best_time:2f}")
+              if np.isnan(loss):
+                  break
+              if opt['patience'] is not None:
+                  if patience_count >= opt['patience']:
+                      break
+          print(
+              f"best val accuracy {val_acc:.3f} with test accuracy {test_acc:.3f} at epoch {best_epoch} and best time {best_time:2f}")
 
             # stats = calc_stats(model, data)
             # RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = stats['RQX0'], stats['RQXN'], stats['ev_max'], stats['ev_min'], stats['ev_av'], stats['ev_std']
