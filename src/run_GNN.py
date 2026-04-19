@@ -176,41 +176,19 @@ def main(cmd_opt):
                       break
           print(
               f"best val accuracy {val_acc:.3f} with test accuracy {test_acc:.3f} at epoch {best_epoch} and best time {best_time:2f}")
+          with torch.no_grad():
+              emb = model.get_final_embeddings(data.x)
+          LX_final = dirichlet_energy_grad(data.edge_index, data.num_nodes,emb)
+          energy = LX_final.norm(dim=-1).mean().item()
+          print(f"Final layer energy: {energy:.4f}")
+          if method == "none":
+            all_results[method].append(test_acc)
+            energy_results[method].append(energy)
+          else:
+            all_results[method][k].append(test_acc)
+            energy_results[method][k].append(energy)
 
-            # stats = calc_stats(model, data)
-            # RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = stats['RQX0'], stats['RQXN'], stats['ev_max'], stats['ev_min'], stats['ev_av'], stats['ev_std']
-            # print(f"RQX0, RQXN, ev_max, ev_min, ev_av, l_std: {RQX0, RQXN, ev_max, ev_min, ev_av, ev_std}")
-
-            # if opt['num_splits'] > 1:
-            #     results.append([test_acc, val_acc, train_acc, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std])
-
-        # if opt['num_splits'] > 1:
-        #     test_acc_mean, val_acc_mean, train_acc_mean, RQX0, RQXN, ev_max, ev_min, ev_av, ev_std = np.mean(results,
-        #                                                                                                     axis=0)
-        #     test_acc_mean = test_acc_mean * 100
-        #     val_acc_mean = val_acc_mean * 100
-        #     train_acc_mean = train_acc_mean * 100
-        #     test_acc_std = np.sqrt(np.var(results, axis=0)[0]) * 100
-
-        #     results = {'test_mean': test_acc_mean, 'val_mean': val_acc_mean, 'train_mean': train_acc_mean,
-        #               'test_acc_std': test_acc_std,
-        #               'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
-        # else:
-        #     results = {'test_acc': test_acc, 'val_acc': val_acc, 'train_acc': train_acc,
-        #               'RQX0': RQX0, 'RQXN': RQXN, 'ev_max': ev_max, 'ev_min': ev_min, 'ev_av': ev_av, 'ev_std': ev_std}
-        with torch.no_grad():
-            emb = model.get_final_embeddings(data.x)
-        LX_final = dirichlet_energy_grad(data.edge_index, data.num_nodes,emb)
-        energy = LX_final.norm(dim=-1).mean().item()
-        print(f"Final layer energy: {energy:.4f}")
-        if method == "none":
-          all_results[method].append(test_acc)
-          energy_results[method].append(energy)
-        else:
-          all_results[method][k].append(test_acc)
-          energy_results[method][k].append(energy)
-
-        print(f"  rep={rep}: test_acc={test_acc:.4f}")
+          print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
     # --- Summarise results ---
     print(f"\n{'='*60}")
@@ -240,8 +218,8 @@ def main(cmd_opt):
             row_acc[method] = (mean_acc, std_acc)
             row_energy[method] = (mean_energy, std_energy)
           else:
-            mean_acc = np.mean(all_results[method])
-            std_acc = np.std(all_results[method])
+            mean_acc = np.mean(all_results[method])*100
+            std_acc = np.std(all_results[method])*100
             mean_energy = np.mean(energy_results[method])
             std_energy = np.std(energy_results[method])
             row_acc[method] = (mean_acc, std_acc)
@@ -301,7 +279,7 @@ def plot_k_ablation(summary, k_values):
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig('roman_empire_k_ablation.png', dpi=150)
+    plt.savefig(name, dpi=150)
     plt.show()
     return fig
 
