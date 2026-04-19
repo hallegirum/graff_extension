@@ -45,7 +45,7 @@ def bottleneck_score(LX_i, LX_j,eps=1e-08, alpha=1, beta=1):
   score = alpha * grad_diff + beta * mag
   return score 
 
-def evaluate_neighbourhood(X, edge_index, n, local_neigh, eta=0.1):
+def evaluate_neighbourhood(X, edge_index, n, local_neigh,neigh_dict, eta=0.1):
     LX = dirichlet_energy_grad(edge_index, n, X)
     one_step_diffusion = X - eta * LX
     LX_new = dirichlet_energy_grad(edge_index, n, one_step_diffusion)
@@ -55,7 +55,7 @@ def evaluate_neighbourhood(X, edge_index, n, local_neigh, eta=0.1):
     seen = set()
     local_set = set(local_neigh)
     for u in local_neigh:
-        for v in get_neighbours(edge_index, u):
+        for v in neigh_dict[u]:
             if v in local_set:
                 a, b = sorted((u, v))
                 if (a, b) in seen:
@@ -298,15 +298,15 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
                 continue
             
             local_neigh = list(set(neigh_i + neigh_j + [node_i, node_j]))
-            old_score = score_neighbourhood(
-                LX_smooth, neigh_dict, local_neigh
-            )
+            old_score = evaluate_neighbourhood(X,edge_index,n,local_neigh,neigh_dict)
             
             best = (-float('inf'), (-1, -1))
             for (u, v) in valid_candidates:
-                new_score = evaluate_neighbourhood_fast(
-                    LX_smooth, neigh_dict, local_neigh,
-                    u, v
+                rewired_edge_index = add_edge(edge_index, u, v)
+                rewired_edge_index = add_edge(rewired_edge_index,v,u)
+                rewired_neigh_dict = add_edge_to_neighbour_dict(neigh_dict,u,v)
+                new_score = evaluate_neighbourhood(
+                    X, rewired_edge_index,n, local_neigh,neigh_dict
                 )
                 relief = old_score - new_score
                 if best[0] < relief:

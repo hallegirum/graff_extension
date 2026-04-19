@@ -85,14 +85,14 @@ def main(cmd_opt):
     pos_encoding = None
     this_test = test
     results = []
-    k_values = [20,50,100,200,500]
+    k_values = [10,20,50]
     all_results = { 
-      'none':  {k: [] for k in k_values},
+      'none':  [],
       'fosr':  {k: [] for k in k_values},
       'diffusion':  {k: [] for k in k_values},
     }
     energy_results = { 
-      'none':  {k: [] for k in k_values},
+      'none':  [],
       'fosr':  {k: [] for k in k_values},
       'diffusion':  {k: [] for k in k_values},
     }
@@ -203,8 +203,12 @@ def main(cmd_opt):
         LX_final = dirichlet_energy_grad(data.edge_index, data.num_nodes,emb)
         energy = LX_final.norm(dim=-1).mean().item()
         print(f"Final layer energy: {energy:.4f}")
-        all_results[method][k].append(test_acc)
-        energy_results[method][k].append(energy)
+        if method == "none":
+          all_results[method].append(test_acc)
+          energy_results[method].append(energy)
+        else:
+          all_results[method][k].append(test_acc)
+          energy_results[method][k].append(energy)
 
         print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
@@ -223,6 +227,7 @@ def main(cmd_opt):
         row_energy = {}
 
         for method in ['none', 'fosr', 'diffusion']:
+          if method == "fosr" or method == "diffusion":
             accs = all_results[method][k]
             energy = energy_results[method][k]
 
@@ -234,23 +239,30 @@ def main(cmd_opt):
 
             row_acc[method] = (mean_acc, std_acc)
             row_energy[method] = (mean_energy, std_energy)
+          else:
+            mean_acc = np.mean(all_results[method])
+            std_acc = np.std(all_results[method])
+            mean_energy = np.mean(energy_results[method])
+            std_energy = np.std(energy_results[method])
+            row_acc[method] = (mean_acc, std_acc)
+            row_energy[method] = (mean_energy, std_energy)
 
         summary[k] = row_acc
         summary_energy[k] = row_energy
 
-    print(
-        f"{k:<8} "
-        f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
-        f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
-        f"{row_acc['diffusion'][0]:.2f}±{row_acc['diffusion'][1]:.2f}"
-    )
+        print(
+            f"{k:<8} "
+            f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
+            f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
+            f"{row_acc['diffusion'][0]:.2f}±{row_acc['diffusion'][1]:.2f}"
+        )
 
-    print(
-        f"{k:<8} "
-        f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
-        f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
-        f"{row_energy['diffusion'][0]:.2f}±{row_energy['diffusion'][1]:.2f}"
-    )
+        print(
+            f"{k:<8} "
+            f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
+            f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
+            f"{row_energy['diffusion'][0]:.2f}±{row_energy['diffusion'][1]:.2f}"
+        )
 
     plot_k_ablation(summary, k_values, "acc.png")
     plot_k_ablation(summary_energy, k_values, "energy.png")
