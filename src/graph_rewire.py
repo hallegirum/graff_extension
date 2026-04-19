@@ -4,6 +4,7 @@ import torch
 from torch_geometric.utils import get_laplacian, remove_self_loops, add_remaining_self_loops, contains_self_loops, is_undirected
 import torch_sparse
 from collections import defaultdict
+import numpy as np
 
 def has_edge(edge_index, i, j):
   return bool(((edge_index[0]==i) & (edge_index[1]==j)).any())
@@ -31,6 +32,7 @@ def add_edge_to_neighbour_dict(neighbour_dict, u, v):
     new_dict[v] = neighbour_dict[v] + [u]
     return new_dict
 
+
 def dirichlet_energy_grad(edge_index, n, X, edge_weight=None, norm_type=None):
   edge_index, L = get_laplacian(edge_index, edge_weight, norm_type)
   LX = torch_sparse.spmm(edge_index, L, n, n, X)
@@ -44,31 +46,94 @@ def bottleneck_score(LX_i, LX_j,eps=1e-08, alpha=1, beta=1):
 
   score = alpha * grad_diff + beta * mag
   return score 
-
-def evaluate_neighbourhood(X, edge_index, n, local_neigh,neigh_dict, eta=0.1):
+def tango_bottleneck_score(edge_index, n, X, eta=0.1, eps=1e-8):
     LX = dirichlet_energy_grad(edge_index, n, X)
-    one_step_diffusion = X - eta * LX
-    LX_new = dirichlet_energy_grad(edge_index, n, one_step_diffusion)
+    X_smooth = X - eta * LX
+
+    LX_smooth = dirichlet_energy_grad(edge_index, n, X_smooth)
+    diff = torch.norm(
+        LX_smooth[edge_index[0]] - LX_smooth[edge_index[1]], dim=-1
+    )**2
+    mag = torch.norm(LX_smooth[edge_index[0]], dim=-1)**2 + \
+          torch.norm(LX_smooth[edge_index[1]], dim=-1)**2
+    return diff + mag
+
+def bottleneck_score_v2(edge_index, n, X, eta=0.1, eps=1e-8):
+    """
+    Normalised gradient difference — matches tango_like_bottleneck 
+    structure but uses Dirichlet energy gradient instead of learned energy.
+    """
+    LX = dirichlet_energy_grad(edge_index, n, X)
+    X_smooth = X - eta * LX  # X_smooth[i] = weighted average of neighbourhood
+    
+    i = edge_index[0]
+    j = edge_index[1]
+    
+    # Score by normalised FEATURE difference after smoothing
+    # NOT gradient difference
+    diff = torch.norm(X_smooth[i] - X_smooth[j], dim=-1)
+    mag  = torch.norm(X_smooth[i], dim=-1) + torch.norm(X_smooth[j], dim=-1)
+    
+    score = diff / (mag + eps)
+    return score
+def evaluate_neighbourhood(X, edge_index, n, local_neigh, neigh_dict, eta=0.1):
+    
+    # Compute scores for ALL edges once — returns (m,) tensor
+    all_scores = bottleneck_score_v2(edge_index, n, X)
+    
+    # Build edge-to-index lookup for fast access
+    # Maps (u,v) -> index in edge_index
+    edge_to_idx = {}
+    for idx in range(edge_index.shape[1]):
+        u = edge_index[0, idx].item()
+        v = edge_index[1, idx].item()
+        edge_to_idx[(u, v)] = idx
 
     local_score = 0.0
     count = 0
     seen = set()
     local_set = set(local_neigh)
-    for u in local_neigh:
-        for v in neigh_dict[u]:
-            if v in local_set:
-                a, b = sorted((u, v))
-                if (a, b) in seen:
-                    continue
-                seen.add((a, b))
 
-                local_score += bottleneck_score(LX_new[u], LX_new[v])
+    for u in local_neigh:
+        for v in neigh_dict.get(u, []):
+            if v not in local_set:
+                continue
+            a, b = min(u, v), max(u, v)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+
+            # Look up score for this specific edge
+            if (u, v) in edge_to_idx:
+                idx = edge_to_idx[(u, v)]
+                local_score += all_scores[idx].item()
                 count += 1
 
-    if count == 0:
-        return 0.0
+    return local_score / count if count > 0 else 0.0
+# def evaluate_neighbourhood(X, edge_index, n, local_neigh,neigh_dict, eta=0.1):
+#     LX = dirichlet_energy_grad(edge_index, n, X)
+#     one_step_diffusion = X - eta * LX
+#     LX_new = dirichlet_energy_grad(edge_index, n, one_step_diffusion)
 
-    return local_score / count
+#     local_score = 0.0
+#     count = 0
+#     seen = set()
+#     local_set = set(local_neigh)
+#     for u in local_neigh:
+#         for v in neigh_dict[u]:
+#             if v in local_set:
+#                 a, b = sorted((u, v))
+#                 if (a, b) in seen:
+#                     continue
+#                 seen.add((a, b))
+
+#                 local_score += bottleneck_score_v2(edge_index,n,X)
+#                 count += 1
+
+#     if count == 0:
+#         return 0.0
+
+#     return local_score / count
 
 def energy_gradient_rewire(edge_index, n, X, k,eta=0.1):
 
@@ -271,10 +336,19 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
             LX_smooth = dirichlet_energy_grad(edge_index, n, X_smooth)
         
         # Score all edges using current LX_smooth (exact or approximate)
-        score = bottleneck_score(
-            LX_smooth[edge_index[0]],
-            LX_smooth[edge_index[1]]
-        )
+        # score = bottleneck_score(
+        #     LX_smooth[edge_index[0]],
+        #     LX_smooth[edge_index[1]]
+        # )
+        score= bottleneck_score_v2(edge_index,n,X)
+        # score= tango_bottleneck_score(edge_index,n,X)
+
+        # cv = score.std() / score.mean()
+        # cv2 = score_2.std() / score_2.mean()
+        # print(f"Coefficient of variation1: {cv:.3f}")
+        # print(f"Coefficient of variation2: {cv2:.3f}")
+
+        
         
         # Find worst bottleneck — skip if neighbourhood saturated
         sorted_bottlenecks = torch.argsort(score, descending=True)
@@ -313,6 +387,7 @@ def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1,
                     best = (relief, (u, v))
             
             if best[1] != (-1, -1):
+                print("edge_added")
                 u, v = best[1]
                 edge_index = add_edge(edge_index, u, v)
                 edge_index = add_edge(edge_index, v, u)

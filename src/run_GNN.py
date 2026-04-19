@@ -99,7 +99,7 @@ def main(cmd_opt):
 
     for i,k in enumerate(k_values):
       print(f"Running k={k}")
-      for method in ['none','fosr','diffusion']:
+      for method in ['diffusion']:
         print(method)
         if method == 'none' and i >0:
           continue
@@ -143,8 +143,8 @@ def main(cmd_opt):
           model = GNN(opt, dataset, device).to(device)
 
           parameters = [p for p in model.parameters() if p.requires_grad]
-          print(opt)
-          print_model_params(model)
+          # print(opt)
+          # print_model_params(model)
           optimizer = get_optimizer(opt['optimizer'], parameters, lr=opt['lr'], weight_decay=opt['decay'])
           best_time = best_epoch = train_acc = val_acc = test_acc = 0
           if opt['patience'] is not None:
@@ -204,7 +204,7 @@ def main(cmd_opt):
         row_acc = {}
         row_energy = {}
 
-        for method in ['none', 'fosr', 'diffusion']:
+        for method in ['diffusion']:
           if method == "fosr" or method == "diffusion":
             accs = all_results[method][k]
             energy = energy_results[method][k]
@@ -230,15 +230,15 @@ def main(cmd_opt):
 
         print(
             f"{k:<8} "
-            f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
-            f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
+            # f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
+            # f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
             f"{row_acc['diffusion'][0]:.2f}±{row_acc['diffusion'][1]:.2f}"
         )
 
         print(
             f"{k:<8} "
-            f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
-            f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
+            # f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
+            # f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
             f"{row_energy['diffusion'][0]:.2f}±{row_energy['diffusion'][1]:.2f}"
         )
 

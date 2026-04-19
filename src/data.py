@@ -65,6 +65,7 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
 
   elif ds == 'film':
     dataset = Actor(root=path, transform=T.NormalizeFeatures())
+    use_lcc = False
 
   elif ds == 'syn_cora':
     dataset = get_pyg_syn_cora(data_dir, opt, rep=1)
@@ -136,6 +137,7 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
     data.edge_index = to_undirected(data.edge_index)
 
   dataset._data = data
+  compute_feature_snr(data)
   return dataset
 
 
@@ -260,7 +262,40 @@ def draw_bipartite_graph(data):
   nx.draw_networkx_edges(G, pos)
   plt.axis('off')
   plt.show()
-
+def compute_feature_snr(data):
+  
+    X = data.x.numpy()
+    y = data.y.numpy()
+    classes = np.unique(y)
+    
+    community_means = []
+    intra_vars = []
+    
+    for c in classes:
+        mask = y == c
+        if mask.sum() < 2:
+            continue
+        class_features = X[mask]
+        class_mean = class_features.mean(axis=0)
+        community_means.append(class_mean)
+        intra_var = ((class_features - class_mean)**2).mean()
+        intra_vars.append(intra_var)
+    
+    community_means = np.array(community_means)
+    global_mean = community_means.mean(axis=0)
+    inter_var = ((community_means - global_mean)**2).mean()
+    intra_var_mean = np.mean(intra_vars)
+    
+    snr = inter_var / (intra_var_mean + 1e-8)
+    
+    print(f"Number of classes: {len(classes)}")
+    print(f"Inter-class feature variance:      {inter_var:.4f}")
+    print(f"Mean intra-class feature variance: {intra_var_mean:.4f}")
+    print(f"Feature SNR:                       {snr:.4f}")
+    print(f"SNR > 1 → your method should outperform FoSR")
+    print(f"SNR < 1 → both methods behave similarly")
+    
+    return snr
 if __name__ == '__main__':
     data = create_bipartite_graph(10, 5, 2)
     print(data)
