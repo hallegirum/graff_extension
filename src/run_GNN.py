@@ -85,10 +85,11 @@ def main(cmd_opt):
     pos_encoding = None
     this_test = test
     results = []
+    k_values = [10,20,30]
+
     test_accuracy = {'none':  [],
       'fosr':  {k: [] for k in k_values},
       'diffusion':  {k: [] for k in k_values},}
-    k_values = [10,20,30]
     all_results = { 
       'none':  [],
       'fosr':  {k: [] for k in k_values},
@@ -192,7 +193,7 @@ def main(cmd_opt):
           else:
             all_results[method][k].append(test_acc)
             energy_results[method][k].append(energy)
-            test_accuracy[method][k].append(np.mean(last_ten_test_acc))
+            test_accuracy[method][k].append(np.mean(epoch_test_accs[-10]))
 
           print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
