@@ -58,24 +58,51 @@ def tango_bottleneck_score(edge_index, n, X, eta=0.1, eps=1e-8):
           torch.norm(LX_smooth[edge_index[1]], dim=-1)**2
     return diff + mag
 
-def bottleneck_score_v2(edge_index, n, X, eta=0.1, eps=1e-8):
-    """
-    Normalised gradient difference — matches tango_like_bottleneck 
-    structure but uses Dirichlet energy gradient instead of learned energy.
-    """
+# def bottleneck_score_v2(edge_index, n, X, eta=0.1, eps=1e-8):
+#     """
+#     Normalised gradient difference — matches tango_like_bottleneck 
+#     structure but uses Dirichlet energy gradient instead of learned energy.
+#     """
+#     LX = dirichlet_energy_grad(edge_index, n, X)
+#     X_smooth = X - eta * LX  # X_smooth[i] = weighted average of neighbourhood
+    
+#     i = edge_index[0]
+#     j = edge_index[1]
+    
+#     # Score by normalised FEATURE difference after smoothing
+#     # NOT gradient difference
+#     diff = torch.norm(X_smooth[i] - X_smooth[j], dim=-1)
+#     mag  = torch.norm(X_smooth[i], dim=-1) + torch.norm(X_smooth[j], dim=-1)
+    
+#     score = diff / (mag + eps)
+#     return score
+
+def bottleneck_score_v2(edge_index, n, X, eta=None, eps=1e-8):
+    
+    # Compute max degree for stable eta
+    deg = torch.zeros(n, device=edge_index.device)
+    deg.scatter_add_(
+        0, edge_index[0], 
+        torch.ones(edge_index.shape[1], device=edge_index.device)
+    )
+    d_max = deg.max().item()
+    
+    # Stable eta: must satisfy eta < 1/d_max for unnormalised Laplacian
+    if eta is None:
+        eta = 0.9 / (d_max + 1e-8)
+    
     LX = dirichlet_energy_grad(edge_index, n, X)
-    X_smooth = X - eta * LX  # X_smooth[i] = weighted average of neighbourhood
+    X_smooth = X - eta * LX
     
     i = edge_index[0]
     j = edge_index[1]
     
-    # Score by normalised FEATURE difference after smoothing
-    # NOT gradient difference
     diff = torch.norm(X_smooth[i] - X_smooth[j], dim=-1)
     mag  = torch.norm(X_smooth[i], dim=-1) + torch.norm(X_smooth[j], dim=-1)
     
     score = diff / (mag + eps)
     return score
+
 def evaluate_neighbourhood(X, edge_index, n, local_neigh, neigh_dict, eta=0.1):
     
     # Compute scores for ALL edges once — returns (m,) tensor
@@ -308,7 +335,7 @@ def evaluate_neighbourhood_fast(LX_smooth, neighbour_dict, local_neigh, candidat
     return score_neighbourhood(LX_approx, augmented_dict, local_neigh)
 
 def energy_gradient_rewire_hybrid(edge_index, n, X, k, eta=0.1, 
-                                   recompute_every=5):
+                                   recompute_every=1):
     """
     Hybrid: exact recomputation every recompute_every steps,
     approximate updates in between.

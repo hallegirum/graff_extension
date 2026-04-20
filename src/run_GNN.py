@@ -85,7 +85,10 @@ def main(cmd_opt):
     pos_encoding = None
     this_test = test
     results = []
-    k_values = [10,20,50]
+    test_accuracy = {'none':  [],
+      'fosr':  {k: [] for k in k_values},
+      'diffusion':  {k: [] for k in k_values},}
+    k_values = [10,20,30]
     all_results = { 
       'none':  [],
       'fosr':  {k: [] for k in k_values},
@@ -99,7 +102,7 @@ def main(cmd_opt):
 
     for i,k in enumerate(k_values):
       print(f"Running k={k}")
-      for method in ['diffusion']:
+      for method in ['diffusion', 'fosr','none']:
         print(method)
         if method == 'none' and i >0:
           continue
@@ -133,7 +136,7 @@ def main(cmd_opt):
             data.val_mask   = val_mask_all[:, rep]
             data.test_mask  = test_mask_all[:, rep]
           
-          if opt['dataset'] == "cornell":
+          if opt['dataset'] == "cornell" or opt['dataset'] == "texas":
             split = get_fixed_splits(base_data, "cornell", seed=rep)
             data.train_mask = split.train_mask.to(device)
             data.val_mask   = split.val_mask.to(device)
@@ -149,11 +152,13 @@ def main(cmd_opt):
           best_time = best_epoch = train_acc = val_acc = test_acc = 0
           if opt['patience'] is not None:
               patience_count = 0
+          
+          epoch_test_accs = []
           for epoch in range(1, opt['epoch']):
               start_time = time.time()
               loss = train(model, optimizer, data, pos_encoding)
               tmp_train_acc, tmp_val_acc, tmp_test_acc = this_test(model, data, pos_encoding, opt)
-
+              epoch_test_accs.append(tmp_test_acc)
               best_time = opt['time']
               if tmp_val_acc > val_acc:
                   best_epoch = epoch
@@ -168,7 +173,6 @@ def main(cmd_opt):
               #       f"forward nfe {model.fm.sum}, backward nfe {model.bm.sum}, "
               #       f"tmp_train: {tmp_train_acc:.4f}, tmp_val: {tmp_val_acc:.4f}, tmp_test: {tmp_test_acc:.4f}, "
               #       f"Train: {train_acc:.4f}, Val: {val_acc:.4f}, Test: {test_acc:.4f}, Best time: {best_time:.4f}")
-
               if np.isnan(loss):
                   break
               if opt['patience'] is not None:
@@ -184,9 +188,11 @@ def main(cmd_opt):
           if method == "none":
             all_results[method].append(test_acc)
             energy_results[method].append(energy)
+            test_accuracy[method].append(np.mean(epoch_test_accs[-10]))
           else:
             all_results[method][k].append(test_acc)
             energy_results[method][k].append(energy)
+            test_accuracy[method][k].append(np.mean(last_ten_test_acc))
 
           print(f"  rep={rep}: test_acc={test_acc:.4f}")
 
@@ -199,12 +205,14 @@ def main(cmd_opt):
 
     summary = {}
     summary_energy = {}
+    summary_test = {}
 
     for k in k_values:
         row_acc = {}
         row_energy = {}
+        row_test = {}
 
-        for method in ['diffusion']:
+        for method in ['diffusion','fosr','none']:
           if method == "fosr" or method == "diffusion":
             accs = all_results[method][k]
             energy = energy_results[method][k]
@@ -214,39 +222,57 @@ def main(cmd_opt):
 
             mean_acc = np.mean(accs) * 100
             std_acc = np.std(accs) * 100
+            mean_test = np.mean(test_accuracy[method][k])*100
+            std_test = np.std(test_accuracy[method][k])*100
 
             row_acc[method] = (mean_acc, std_acc)
             row_energy[method] = (mean_energy, std_energy)
+            row_test[method] = (mean_test,std_test)
+
+            
           else:
             mean_acc = np.mean(all_results[method])*100
             std_acc = np.std(all_results[method])*100
             mean_energy = np.mean(energy_results[method])
             std_energy = np.std(energy_results[method])
+            mean_test = np.mean(test_accuracy[method])*100
+            std_test = np.std(test_accuracy[method])*100
             row_acc[method] = (mean_acc, std_acc)
             row_energy[method] = (mean_energy, std_energy)
+            row_test[method] = (mean_test,std_test)
 
         summary[k] = row_acc
         summary_energy[k] = row_energy
+        summary_test[k] = row_test
 
         print(
             f"{k:<8} "
-            # f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
-            # f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
+            f"{row_acc['none'][0]:.2f}±{row_acc['none'][1]:.2f}{'':8}"
+            f"{row_acc['fosr'][0]:.2f}±{row_acc['fosr'][1]:.2f}{'':8}"
             f"{row_acc['diffusion'][0]:.2f}±{row_acc['diffusion'][1]:.2f}"
         )
 
         print(
             f"{k:<8} "
-            # f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
-            # f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
+            f"{row_energy['none'][0]:.2f}±{row_energy['none'][1]:.2f}{'':8}"
+            f"{row_energy['fosr'][0]:.2f}±{row_energy['fosr'][1]:.2f}{'':8}"
             f"{row_energy['diffusion'][0]:.2f}±{row_energy['diffusion'][1]:.2f}"
+        )
+
+        print(
+            f"{k:<8} "
+            f"{row_test['none'][0]:.2f}±{row_test['none'][1]:.2f}{'':8}"
+            f"{row_test['fosr'][0]:.2f}±{row_test['fosr'][1]:.2f}{'':8}"
+            f"{row_test['diffusion'][0]:.2f}±{row_test['diffusion'][1]:.2f}"
         )
 
     plot_k_ablation(summary, k_values, "acc.png")
     plot_k_ablation(summary_energy, k_values, "energy.png")
+    plot_k_ablation(summary_test, k_values, "test.png")
+
     return summary, all_results
 
-def plot_k_ablation(summary, k_values):
+def plot_k_ablation(summary, k_values,name):
     """
     Plot test accuracy vs k for all three methods.
     Called after main_k_ablation.
@@ -275,7 +301,7 @@ def plot_k_ablation(summary, k_values):
 
     ax.set_xlabel('k (edges added)', fontsize=12)
     ax.set_ylabel('Test Accuracy (%)', fontsize=12)
-    ax.set_title('Roman-Empire: Accuracy vs Rewiring Budget', fontsize=13)
+    ax.set_title('Accuracy vs Rewiring Budget', fontsize=13)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
